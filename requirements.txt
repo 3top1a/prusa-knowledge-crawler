@@ -1,0 +1,6 @@
+html2text
+xmltodict
+requests
+beautifulsoup4
+logging
+alive-progress
