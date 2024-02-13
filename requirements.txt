@@ -4,3 +4,4 @@ requests
 beautifulsoup4
 logging
 alive-progress
+colorlog

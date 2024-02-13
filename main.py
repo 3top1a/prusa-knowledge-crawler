@@ -5,18 +5,24 @@ import xmltodict
 import logging
 from alive_progress import alive_it
 import argparse
+import colorlog
 
-logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
+# Logging
+logging.basicConfig(level=logging.DEBUG)
+handler = colorlog.StreamHandler()
+handler.setFormatter(colorlog.ColoredFormatter('%(log_color)s%(levelname)s:%(name)s:%(message)s'))
+logger = colorlog.getLogger('example')
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
 
+# Arguments
 parser = argparse.ArgumentParser(description='Scrape the prusaknowledge base into a Markdown file.')
 parser.add_argument('-o', '--output', type=str, default=None, help='Output file. Overwrites the contents.')
 parser.add_argument('--lang', type=str, default='en', help='Language filter for URLs. Use shorthands such as `en` or `cs`.')
 parser.add_argument('--images', default=False, action='store_true', help='Also scrape images. Most are encoded as raw base64, beware of file sizes.')
 parser.add_argument('--compress', default=False, action='store_true', help='Removes any whitespace.')
 parser.add_argument('-l', '--limit', type=int, default=10, help='Maximum number of sites to process. Set to 10 000 to crawl the whole knowledge base.')
-
 args = parser.parse_args()
-
 
 language_filter = args.lang
 site_limit = args.limit
@@ -25,8 +31,7 @@ if args.output:
     file_output = open(args.output, 'w')
 
 
-# blog_types = ["article", "guide", "glossary"]
-blog_types = ["article"] # Guides provide redundant information
+blog_types = ["article", "guide"] # Basically everything besides categories
 session = requests.Session()
 headers = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0',
@@ -75,28 +80,37 @@ for entry in alive_it(list(urls)[0:site_limit]):
         logging.error(f"Failed to retrieve webpage {entry} - status code {response.status_code}")
         continue
 
+    logging.debug(f"Scraping {entry}")
+
     # Use bs4 to remove footers, headers and nav to clean up the HTML
     soup = BeautifulSoup(response.content, 'html.parser')
     for element in soup.find_all(['footer', 'header', 'nav', 'script']):
         element.decompose()
-    
-    logging.info(entry)
 
     # Remove the support section
     soup.find_all(lambda tag: tag.name == "div" and "Still have questions?" in tag.text)[-1].decompose()
     # Remove rating section
     soup.find_all(lambda tag: tag.name == "div" and "helpful?" in tag.text)[-1].decompose()
+    # Remove language section
+    c = soup.find_all(lambda tag: tag.name == "div" and "This article is also available in following languages:" in tag.text)
+    if c:
+        c[-1].decompose()
     # Remove comment section
     c = soup.find_all(lambda tag: tag.name == "div" and "Comments" in tag.text)
     if c:
         if c[-1]:
             c[-1].decompose()
+
     # Remove the search section
     soup.find_all(lambda tag: tag.name == "ul" and "Home" in tag.text)[0].decompose()
     # Remove last updated text
-    soup.find_all(lambda tag: "Last updated" in tag.text)[0].decompose()
+    c = soup.find_all(lambda tag: "Last updated" in tag.text)
+    if c:
+        c[-1].decompose()
     # Remove relevant for
-    soup.find_all(lambda tag: "Relevant for:" in tag.text)[0].decompose()
+    relevantfor = soup.find_all(lambda tag: "Relevant for:" in tag.text)
+    if relevantfor:
+        relevantfor[-1].decompose()
     # Remove emptyish text paragraphs
     target_div = soup.find_all(lambda tag: tag.name == "p" and len(tag.text) < 25)
     for t in target_div:
@@ -121,17 +135,14 @@ for entry in alive_it(list(urls)[0:site_limit]):
         if value > best_v:
             best_v = value
             best = key
+    
+    if best is None:
+        logging.error(f"Failed to extract any text from {entry}")
+        continue
 
-    # TODO TEST
-    print(best)
-
-    text = h.handle(str(soup))
-    # Remove dangling `Search`
-    text = text[8:]
-    # Remove dangling "Menu"
-    text = text.replace("Menu\n\n", "")
+    text = h.handle(best.text)
     # Add meta to the start
-    text = f"---\nURL: {entry}" + text.strip()
+    text = f"\n---\nURL: {entry}\n\n" + text.strip() + "\n"
     
     if args.compress:
         # TODO
