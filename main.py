@@ -47,6 +47,7 @@ headers = {
 h = html2text.HTML2Text()
 h.ignore_images = not args.images
 h.images_to_alt = not args.images
+h.ignore_tables = True # Incorrect detection, makes the output wierd
 h.body_width = 0 # Do not break up long lines. The detection algo doesn't work well with links
 
 # Parse sitemap and generate list of URLs
@@ -119,6 +120,7 @@ for entry in alive_it(list(urls)[0:site_limit]):
     soup.find_all(lambda tag: tag.name == "ul")[0].decompose()
 
     # Find the div with the most paragraph headers
+    # TODO: does not work for guides as those use nested divs with spans and inline text
     paragraphs = soup.find_all(lambda tag: tag.name == "p")
     parent_scores = {}
     for p in paragraphs:
@@ -140,9 +142,12 @@ for entry in alive_it(list(urls)[0:site_limit]):
         logging.error(f"Failed to extract any text from {entry}")
         continue
 
-    text = h.handle(best.text)
+    text = h.handle(str(best))
+    text = text.replace("---", "***")
     # Add meta to the start
-    text = f"\n---\nURL: {entry}\n\n" + text.strip() + "\n"
+    title = soup.find('title').string.replace(" | Prusa Knowledge Base", "")
+    # text = f"\n---\nURL: {entry}\nTITLE: {title}\n\n" + text.strip() + "\n"
+    text = f"\n---\n# [{title}]({entry})\n\n" + text.strip() + "\n"
     
     if args.compress:
         # TODO
