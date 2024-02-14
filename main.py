@@ -6,6 +6,8 @@ import logging
 from alive_progress import alive_it
 import argparse
 import colorlog
+from readability import Document
+import mdformat
 
 # Logging
 logging.basicConfig(level=logging.DEBUG)
@@ -119,31 +121,12 @@ for entry in alive_it(list(urls)[0:site_limit]):
     # Remove the leftmost nav bar
     soup.find_all(lambda tag: tag.name == "ul")[0].decompose()
 
-    # Find the div with the most paragraph headers
-    # TODO: does not work for guides as those use nested divs with spans and inline text
-    paragraphs = soup.find_all(lambda tag: tag.name == "p")
-    parent_scores = {}
-    for p in paragraphs:
-        parent = p.parent
-        if parent in parent_scores:
-            parent_scores[parent] += 1
-        else:
-            parent_scores[parent] = 1
+    # https://github.com/buriy/python-readability
+    doc = Document(str(soup))
 
-    # Sort
-    best = None
-    best_v = 0
-    for (key, value) in parent_scores.items():
-        if value > best_v:
-            best_v = value
-            best = key
-    
-    if best is None:
-        logging.error(f"Failed to extract any text from {entry}")
-        continue
-
-    text = h.handle(str(best))
-    text = text.replace("---", "***")
+    text = h.handle(doc.summary())
+    text = text.replace("---", "***").replace("⬢", "- ")
+    test = mdformat.text(text)
     # Add meta to the start
     title = soup.find('title').string.replace(" | Prusa Knowledge Base", "")
     # text = f"\n---\nURL: {entry}\nTITLE: {title}\n\n" + text.strip() + "\n"
