@@ -8,23 +8,38 @@ import argparse
 import colorlog
 from readability import Document
 import mdformat
+import re
 
-# Logging
 logging.basicConfig(level=logging.DEBUG)
 handler = colorlog.StreamHandler()
 handler.setFormatter(colorlog.ColoredFormatter('%(log_color)s%(levelname)s:%(name)s:%(message)s'))
 logger = colorlog.getLogger('example')
 logger.addHandler(handler)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # Arguments
 parser = argparse.ArgumentParser(description='Scrape the prusaknowledge base into a Markdown file.')
 parser.add_argument('-o', '--output', type=str, default=None, help='Output file. Overwrites the contents.')
 parser.add_argument('--lang', type=str, default='en', help='Language filter for URLs. Use shorthands such as `en` or `cs`.')
 parser.add_argument('--images', default=False, action='store_true', help='Also scrape images. Most are encoded as raw base64, beware of file sizes.')
-parser.add_argument('--compress', default=False, action='store_true', help='Removes any whitespace.')
+parser.add_argument('--compress', default=False, action='store_true', help='Removes any whitespace. Not implemented.')
+parser.add_argument('-v', '--verbose', default=False, action='store_true', help='Verbose output.')
 parser.add_argument('-l', '--limit', type=int, default=10, help='Maximum number of sites to process. Set to 10 000 to crawl the whole knowledge base.')
 args = parser.parse_args()
+
+# Logging
+if args.verbose:
+    logging.basicConfig(level=logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+handler = colorlog.StreamHandler()
+handler.setFormatter(colorlog.ColoredFormatter('%(log_color)s%(levelname)s:%(name)s:%(message)s'))
+logger = colorlog.getLogger('example')
+logger.addHandler(handler)
+if args.verbose:
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.INFO)
 
 language_filter = args.lang
 site_limit = args.limit
@@ -50,6 +65,7 @@ h = html2text.HTML2Text()
 h.ignore_images = not args.images
 h.images_to_alt = not args.images
 h.ignore_tables = True # Incorrect detection, makes the output wierd
+h.ignore_links = False
 h.body_width = 0 # Do not break up long lines. The detection algo doesn't work well with links
 
 # Parse sitemap and generate list of URLs
@@ -75,8 +91,21 @@ for link in raw_links:
 
 logging.info(f"Found {len(urls)} sites")
 
-# Request each entry (with max limit)
-for entry in alive_it(list(urls)[0:site_limit]):
+# Posts have a number at the end, compile them into a dict and sort by them
+# Orders the newest posts first
+sites = list(urls)
+site_dict = {}
+header_pattern = re.compile(r'(?<=_)\d+')
+for site in sites:
+    logging.debug(site)
+    num = int(header_pattern.findall(site)[-1])
+    site_dict[num] = site
+
+site_dict = [site_dict[k] for k in sorted(site_dict.keys())]
+
+
+# Crawl each entry
+for entry in alive_it(site_dict[0:site_limit]):
     response = session.get(entry, headers=headers)
 
     if response.status_code != 200:
@@ -126,11 +155,12 @@ for entry in alive_it(list(urls)[0:site_limit]):
 
     text = h.handle(doc.summary())
     text = text.replace("---", "***").replace("⬢", "- ")
+    text = '\n'.join([x.strip() for x in text.split('\n')])
     test = mdformat.text(text)
     # Add meta to the start
     title = soup.find('title').string.replace(" | Prusa Knowledge Base", "")
     # text = f"\n---\nURL: {entry}\nTITLE: {title}\n\n" + text.strip() + "\n"
-    text = f"\n---\n# [{title}]({entry})\n\n" + text.strip() + "\n"
+    text = f"\n---\n\n# [{title}]({entry})\n\n" + text.strip() + "\n"
     
     if args.compress:
         # TODO
